@@ -1,0 +1,367 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+</head>
+<body>
+<title>Frame Extractor</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Familjen+Grotesk:wght@400;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one narrow column — drop zone, settings row, progress, then a contact-sheet grid of kept frames */
+:root {
+  --bg: #f2f4f6;
+  --panel: #ffffff;
+  --ink: #15191e;
+  --muted: #5b6672;
+  --line: #d5dbe1;
+  --accent: #0a6c95;
+  --accent-ink: #ffffff;
+  --sprocket: #1c2228;
+  --font-display: "Familjen Grotesk", "Helvetica Neue", Arial, sans-serif;
+  --font-body: "Familjen Grotesk", "Helvetica Neue", Arial, sans-serif;
+  --font-data: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #101418; --panel: #182027; --ink: #e8edf1; --muted: #93a1ae;
+    --line: #2a343e; --accent: #4cb3de; --accent-ink: #06202c; --sprocket: #05080a;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #101418; --panel: #182027; --ink: #e8edf1; --muted: #93a1ae;
+  --line: #2a343e; --accent: #4cb3de; --accent-ink: #06202c; --sprocket: #05080a;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 16px; line-height: 1.5;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 32px 64px;
+}
+main { max-width: 1040px; margin: 0 auto; display: grid; gap: 24px; }
+header { display: grid; gap: 6px; }
+h1 { font-family: var(--font-display); font-size: clamp(28px, 5vw, 40px); line-height: 1.1; margin: 0; letter-spacing: -0.01em; text-wrap: balance; }
+.lede { margin: 0; color: var(--muted); max-width: 62ch; }
+.drop {
+  border: 2px dashed var(--line); border-radius: 10px; background: var(--panel);
+  padding: 36px 20px; text-align: center; display: grid; gap: 10px; justify-items: center; cursor: pointer;
+  transition: border-color .15s, background .15s;
+}
+.drop:hover, .drop.over { border-color: var(--accent); }
+.drop:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+.drop strong { font-size: 18px; }
+.drop small { color: var(--muted); }
+.drop input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.settings { display: flex; flex-wrap: wrap; gap: 16px 28px; align-items: end; }
+.field { display: grid; gap: 4px; min-width: 0; }
+.field label { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 600; }
+.field .val { font-family: var(--font-data); font-size: 13px; color: var(--ink); }
+input[type="range"] { width: 220px; max-width: 100%; accent-color: var(--accent); }
+select { font: inherit; padding: 6px 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); }
+.hint { font-size: 13px; color: var(--muted); margin: 0; max-width: 62ch; }
+button {
+  font: inherit; font-weight: 600; border-radius: 6px; padding: 9px 16px; cursor: pointer;
+  border: 1px solid var(--line); background: var(--panel); color: var(--ink);
+}
+button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+button:disabled { opacity: .45; cursor: not-allowed; }
+button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.status { display: grid; gap: 8px; }
+.bar { height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
+.bar > i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .1s linear; }
+.stats { font-family: var(--font-data); font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; display: flex; flex-wrap: wrap; gap: 4px 20px; }
+.stats b { color: var(--ink); font-weight: 500; }
+.toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: flex-end; }
+.toolbar h2 { margin: 0; font-size: 20px; }
+.actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.sheet {
+  background: var(--sprocket); border-radius: 8px; padding: 14px;
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 14px;
+}
+.frame { display: grid; gap: 6px; min-width: 0; }
+.frame img { width: 100%; aspect-ratio: var(--ar, 16/9); object-fit: contain; background: #000; border-radius: 3px; display: block; }
+.frame .meta { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-family: var(--font-data); font-size: 12px; color: #c9d3dc; font-variant-numeric: tabular-nums; }
+.frame button { padding: 3px 9px; font-size: 12px; background: transparent; color: #c9d3dc; border-color: #3b4651; }
+.frame button:hover { border-color: #c9d3dc; }
+.empty { color: #93a1ae; font-size: 14px; grid-column: 1 / -1; text-align: center; padding: 28px 8px; }
+.error { color: #b3261e; font-weight: 600; margin: 0; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .error { color: #ff8a80; } }
+:root[data-theme="dark"] .error { color: #ff8a80; }
+video, canvas.work { display: none; }
+@media (prefers-reduced-motion: reduce) { .bar > i, .drop { transition: none; } }
+</style>
+
+<main>
+  <header>
+    <h1>Frame Extractor</h1>
+  </header>
+
+  <label class="drop" id="drop">
+    <input type="file" id="file" accept="video/*">
+    <strong id="dropTitle">Choose video</strong>
+  </label>
+
+  <section class="settings" aria-label="Settings">
+    <div class="actions">
+      <button class="primary" id="start" disabled>Extract</button>
+      <button id="stop" hidden>Stop</button>
+    </div>
+  </section>
+
+  <section class="status" id="status" hidden>
+    <div class="bar"><i id="barFill"></i></div>
+  </section>
+  <p class="error" id="err" hidden></p>
+
+  <section class="results" id="results" style="display:grid; gap:12px" hidden>
+    <div class="toolbar">
+      <span></span>
+      <button class="primary" id="zip" disabled>Download all</button>
+    </div>
+    <div class="sheet" id="sheet">
+      <div class="empty" id="empty"></div>
+    </div>
+  </section>
+
+  <video id="video" muted playsinline preload="auto"></video>
+  <canvas class="work" id="full"></canvas>
+  <canvas class="work" id="small"></canvas>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const video = $("video"), full = $("full"), small = $("small");
+  const fctx = full.getContext("2d");
+  const sctx = small.getContext("2d", { willReadFrequently: true });
+
+  // Comparison settings. Frames are shrunk to SMALL_W wide and turned to greyscale
+  // before comparing, which removes compression noise and sensor grain.
+  const SMALL_W = 160;
+  const PIXEL_DELTA = 24; // brightness change (0-255) that counts a pixel as "moved"
+
+  let file = null, baseName = "video", running = false, stopReq = false;
+  let kept = []; // { blob, url, time, index }
+  let downloads = null;
+
+  // Inside a claude.ai artifact, files are saved through the downloads capability.
+  if (window.claude && typeof window.claude.use === "function") {
+    window.claude.use("downloads").then(d => { downloads = d; }).catch(() => {});
+  }
+
+  async function saveFile(name, blob) {
+    if (downloads) {
+      try { await downloads.save({ filename: name, data: blob }); }
+      catch (e) { if (e && e.code !== "declined") showError("Could not save the file: " + (e.message || e.code)); }
+      return;
+    }
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  }
+
+  function showError(msg) { const e = $("err"); e.textContent = msg; e.hidden = !msg; }
+
+  // ---- file input ----
+  const drop = $("drop");
+  $("file").addEventListener("change", e => e.target.files[0] && loadFile(e.target.files[0]));
+  ["dragenter", "dragover"].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.add("over"); }));
+  ["dragleave", "drop"].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.remove("over"); }));
+  drop.addEventListener("drop", e => { const f = e.dataTransfer.files[0]; if (f) loadFile(f); });
+
+  function loadFile(f) {
+    if (running) return;
+    showError("");
+    if (!f.type.startsWith("video/") && !/\.(mp4|m4v|mov|webm|mkv|ogv)$/i.test(f.name)) {
+      showError("That file isn't a video. Choose an MP4, WebM or MOV file.");
+      return;
+    }
+    file = f;
+    baseName = f.name.replace(/\.[^.]+$/, "").replace(/[^\w\-]+/g, "_") || "video";
+    if (video.src) URL.revokeObjectURL(video.src);
+    video.src = URL.createObjectURL(f);
+    $("dropTitle").textContent = f.name;
+        $("start").disabled = true;
+    video.onloadedmetadata = () => { $("start").disabled = false; };
+    video.onerror = () => showError("Your browser can't play this video. Try converting it to MP4 (H.264) first.");
+  }
+
+
+  // ---- helpers ----
+  const once = (el, ev) => new Promise(r => el.addEventListener(ev, r, { once: true }));
+
+  async function seek(t) {
+    if (Math.abs(video.currentTime - t) < 1e-6) return;
+    const p = once(video, "seeked");
+    video.currentTime = t;
+    await p;
+  }
+
+  // Measure the real frame rate by playing briefly and watching when new frames arrive.
+  async function detectFps() {
+    if (!("requestVideoFrameCallback" in HTMLVideoElement.prototype)) return 30;
+    await seek(0);
+    const times = [];
+    await new Promise(resolve => {
+      let done = false;
+      const finish = () => { if (!done) { done = true; video.pause(); resolve(); } };
+      const cb = (_, meta) => {
+        times.push(meta.mediaTime);
+        if (times.length >= 25) finish(); else video.requestVideoFrameCallback(cb);
+      };
+      video.requestVideoFrameCallback(cb);
+      video.playbackRate = 1;
+      video.play().catch(finish);
+      setTimeout(finish, 2500);
+      video.addEventListener("ended", finish, { once: true });
+    });
+    const deltas = [];
+    for (let i = 1; i < times.length; i++) { const d = times[i] - times[i - 1]; if (d > 0.002) deltas.push(d); }
+    if (deltas.length < 3) return 30;
+    deltas.sort((a, b) => a - b);
+    // The smallest common gap is one frame; larger gaps are dropped frames.
+    const d = deltas[Math.floor(deltas.length * 0.2)];
+    const fps = 1 / d;
+    const common = [23.976, 24, 25, 29.97, 30, 48, 50, 59.94, 60, 90, 120, 240];
+    const snap = common.reduce((best, c) => Math.abs(c - fps) < Math.abs(best - fps) ? c : best);
+    if (Math.abs(snap - fps) / snap < 0.04) return snap;
+    return Math.min(240, Math.max(1, Math.round(fps)));
+  }
+
+  function grey(imgData) {
+    const d = imgData.data, out = new Uint8Array(d.length / 4);
+    for (let i = 0, j = 0; i < d.length; i += 4, j++) out[j] = (d[i] * 77 + d[i + 1] * 150 + d[i + 2] * 29) >> 8;
+    return out;
+  }
+
+  // A frame counts as new when any 10x10 tile of the thumbnail has at least
+  // TILE_SHARE of its pixels changed, so a small object moving anywhere is caught,
+  // or when the whole picture shifts a little (pans, lighting).
+  const TILE = 10, TILE_SHARE = 0.12, WHOLE_SHARE = 0.01;
+  function moved(a, b, w, h) {
+    const tw = Math.ceil(w / TILE), counts = new Uint16Array(tw * Math.ceil(h / TILE));
+    let total = 0;
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const i = y * w + x;
+      if (Math.abs(a[i] - b[i]) > PIXEL_DELTA) { total++; counts[((y / TILE) | 0) * tw + ((x / TILE) | 0)]++; }
+    }
+    if (total >= a.length * WHOLE_SHARE) return true;
+    const need = TILE * TILE * TILE_SHARE;
+    return counts.some(c => c >= need);
+  }
+
+  function fmtTime(t) {
+    const m = Math.floor(t / 60), s = t - m * 60;
+    return String(m).padStart(2, "0") + ":" + s.toFixed(2).padStart(5, "0");
+  }
+
+  function clearResults() {
+    kept.forEach(k => URL.revokeObjectURL(k.url));
+    kept = [];
+    $("sheet").replaceChildren($("empty"));
+    $("empty").hidden = false;
+    $("zip").disabled = true;
+  }
+
+  function addCard(k) {
+    $("empty").hidden = true;
+    const fig = document.createElement("figure");
+    fig.className = "frame"; fig.style.margin = "0";
+    fig.style.setProperty("--ar", full.width + "/" + full.height);
+    const img = document.createElement("img");
+    img.src = k.url; img.alt = "Frame at " + fmtTime(k.time); img.loading = "lazy";
+    const meta = document.createElement("figcaption"); meta.className = "meta";
+    const btn = document.createElement("button"); btn.textContent = "Download";
+    btn.addEventListener("click", () => saveFile(k.name, k.blob));
+    meta.append(btn);
+    fig.append(img, meta);
+    $("sheet").append(fig);
+  }
+
+  // ---- main scan ----
+  $("start").addEventListener("click", run);
+  $("stop").addEventListener("click", () => { stopReq = true; });
+
+  async function run() {
+    if (!file || running) return;
+    running = true; stopReq = false; showError("");
+    clearResults();
+    $("start").disabled = true; $("stop").hidden = false; $("status").hidden = false; $("results").hidden = false;
+    $("file").disabled = true;
+
+    try {
+      const fps = await detectFps();
+
+      const W = video.videoWidth, H = video.videoHeight;
+      full.width = W; full.height = H;
+      small.width = SMALL_W; small.height = Math.max(1, Math.round(SMALL_W * H / W));
+
+      const duration = video.duration;
+      const total = Math.max(1, Math.floor(duration * fps));
+      const fmt = "jpg", mime = "image/jpeg";
+      const pad = String(total).length;
+      let ref = null;
+
+      for (let i = 0; i < total && !stopReq; i++) {
+        // Seek to the middle of each frame so rounding never lands on its neighbour.
+        await seek(Math.min(duration - 0.001, (i + 0.5) / fps));
+        sctx.drawImage(video, 0, 0, small.width, small.height);
+        const g = grey(sctx.getImageData(0, 0, small.width, small.height));
+
+        // Compare with the last frame we KEPT, not the previous frame, so slow
+        // movement still adds up and triggers a new picture eventually.
+        if (!ref || moved(ref, g, small.width, small.height)) {
+          ref = g;
+          fctx.drawImage(video, 0, 0, W, H);
+          const blob = await new Promise(r => full.toBlob(r, mime, 0.92));
+          const k = { blob, url: URL.createObjectURL(blob), time: video.currentTime, index: i,
+                      name: `${baseName}_frame${String(i + 1).padStart(pad, "0")}_${fmtTime(video.currentTime).replace(/[:.]/g, "-")}.${fmt}` };
+          kept.push(k); addCard(k);
+          $("zip").disabled = false;
+        }
+        if (i % 3 === 0 || i === total - 1) {
+          $("barFill").style.width = ((i + 1) / total * 100).toFixed(1) + "%";
+        }
+      }
+      if (!stopReq) $("barFill").style.width = "100%";
+      $("status").hidden = true;
+    } catch (e) {
+      showError("Something went wrong while reading the video: " + (e.message || e));
+    } finally {
+      running = false;
+      $("start").disabled = false; 
+      $("stop").hidden = true;
+      $("file").disabled = false;
+    }
+  }
+
+  // ---- zip ----
+  $("zip").addEventListener("click", async () => {
+    if (!kept.length) return;
+    if (typeof JSZip === "undefined") { showError("The zip tool didn't load. Use the Download button on each frame instead."); return; }
+    const btn = $("zip"), label = btn.textContent;
+    btn.disabled = true; btn.textContent = "…";
+    try {
+      const zip = new JSZip();
+      kept.forEach(k => zip.file(k.name, k.blob));
+      const blob = await zip.generateAsync({ type: "blob", compression: "STORE" });
+      await saveFile(baseName + "_frames.zip", blob);
+    } catch (e) {
+      showError("Couldn't build the zip: " + (e.message || e));
+    } finally {
+      btn.disabled = false; btn.textContent = label;
+    }
+  });
+})();
+</script>
+
+</body>
+</html>
